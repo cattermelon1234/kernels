@@ -6,6 +6,7 @@
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
 
+// oh yeah. first fused kernel. i am the duck.
 template<typename T>
 class DeviceBuffer {
 public:
