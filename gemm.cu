@@ -1,4 +1,6 @@
 #include <cuda_runtime.h>
+#include <iostream>
+#include <vector>
 
 #define TILE 16
 
@@ -65,3 +67,80 @@ __global__ void GEMM(const float* A, const float* B, float* C,
   // other blocks will independently compute other 16x16 tiles in our matmul
 }
 
+int main() {
+    const int M = 64;
+    const int K = 64;
+    const int N = 64;
+
+    // Host matrices
+    std::vector<float> h_A(M * K);
+    std::vector<float> h_B(K * N);
+    std::vector<float> h_C(M * N);
+
+    // Initialize A and B
+    for (int i = 0; i < M * K; ++i) {
+        h_A[i] = 1.0f;
+    }
+
+    for (int i = 0; i < K * N; ++i) {
+        h_B[i] = 2.0f;
+    }
+
+    // Device matrices
+    float* d_A;
+    float* d_B;
+    float* d_C;
+
+    cudaMalloc(&d_A, M * K * sizeof(float));
+    cudaMalloc(&d_B, K * N * sizeof(float));
+    cudaMalloc(&d_C, M * N * sizeof(float));
+
+    // Copy inputs to GPU
+    cudaMemcpy(
+        d_A,
+        h_A.data(),
+        M * K * sizeof(float),
+        cudaMemcpyHostToDevice
+    );
+
+    cudaMemcpy(
+        d_B,
+        h_B.data(),
+        K * N * sizeof(float),
+        cudaMemcpyHostToDevice
+    );
+
+    // Launch kernel
+    dim3 block(TILE, TILE);
+
+    dim3 grid(
+        (N + TILE - 1) / TILE,
+        (M + TILE - 1) / TILE
+    );
+
+    GEMM<<<grid, block>>>(d_A, d_B, d_C, M, N, K);
+
+    cudaDeviceSynchronize();
+
+    // Copy result back
+    cudaMemcpy(
+        h_C.data(),
+        d_C,
+        M * N * sizeof(float),
+        cudaMemcpyDeviceToHost
+    );
+
+    // Print a few values
+    std::cout << "C[0][0] = " << h_C[0] << '\n';
+    std::cout << "C[0][1] = " << h_C[1] << '\n';
+    std::cout << "C[1][0] = " << h_C[N] << '\n';
+
+    // Expected:
+    // Each output = sum_{i=0}^{63} (1 * 2) = 128
+
+    cudaFree(d_A);
+    cudaFree(d_B);
+    cudaFree(d_C);
+
+    return 0;
+}
