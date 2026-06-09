@@ -1,0 +1,62 @@
+GEMM kernel (general matrix multiply)
+
+The core of deep learning is the general matrix multiply (GEMM) operation. 
+
+```
+input: 
+A: M x K 
+B: K x N
+
+output:
+C: M x N
+```
+
+So far, I've only worked with 1 dimensional arrays, leading to 1 dimensional thread blocks and grids. However, for GEMM, it is more natural to use 2 dimensional thread blocks and grids.
+However, with 2D thread blocks and grids, we now need to think of blocks as 2D tiles of the output 
+matrix C instead of 1D segments. Each block will be responsible for computing a tile of the output matrix C.
+
+The naive approach is to have thread (i, j) compute the dot product of the i'th row of A and the 
+j'th column of B to produce C[i][j]. However, this approach is inefficient because of repeated and 
+redundant global memory accesses. Each thread needs to load A[i][k] and B[k][j] for all k, leading to an insanely large number of global memory accesses.
+
+Global memory access is one of the most expensive operations on a GPU, so we want to minimize it as much as possible.
+The solution to this is to use shared memory to load tiles of A and B into shared memory, and then have the threads 
+in the block compute the products using the data in shared memory. This way, we can reuse the data in shared memory for multiple products, 
+significantly reducing the number of global memory accesses.
+
+TILE SIZE = 16. Each TILE is a 16x16 block of the output matrix C. Each threadblock corresponds perfectly 
+with a tile. Every thread in the block is responsible for computing one element of the tile. 
+
+C[i][j] = sum_{k=0}^{k=K} A[i][k] * B[k][j]
+However, we can break this down into tiles. Rewriting our summation, we have: 
+C[i][j] = sum_{t=0}^{t=K/TILE_SIZE} sum_{k=t*TILE_SIZE}^{(t+1)*TILE_SIZE} A[i][k] * B[k][j]
+
+[0, 1, 2, 3] * [0, 1, 2, 3] = [0*0 + 1*1 + 2*2 + 3*3] = [14]
+
+We can also compute this in sets of two: [0, 1] * [1, 0] + [2, 3] * [3, 2] = [0*1 + 1*0] + [2*3 + 3*2] = [12]
+That's essentially the idea. To accomplish this, we need to slide our tile across the shared K dimension 
+of A and B, loading the corresponding tiles of A and B into shared memory, and then computing the products using the data in shared memory.
+
+Loading the tiles of A and B into shared memory is straightforward. Each thread in the block can load one element of A and one element of B into shared memory. 
+Then, we can synchronize the threads in the block to ensure that all threads have finished loading their data into shared memory before we start computing the products.
+
+The notation for a 2d grid/block threading layout is as follows:
+
+dim3 blockDim(16, 16); // 16 threads in x direction, 16 threads in y direction
+dim3 gridDim((N + blockDim.x - 1) / blockDim.x, (M + blockDim.y - 1) / blockDim.y); // number of blocks in x and y direction
+
+launch kernel with <<<gridDim, blockDim>>>
+
+Inside the kernel, we can compute the global row and column indices for a thread as follows: 
+
+INSIDE A THREADBLOCK: 
+int tx = threadIdx.x; // thread's x index within the block
+int ty = threadIdx.y; // thread's y index within the block 
+
+GLOBAL INDICES:
+int row = blockIdx.y * blockDim.y + ty; // global row index
+int col = blockIdx.x * blockDim.x + tx; // global column index
+
+Remember: each threadblock is responsible for computing a finalized tile of the output matrix C. 
+Each thread in the block is responsible for computing one element of the tile. We set the tile size,
+     threadblock size, and grid size such that the entire output matrix C is covered by the threadblocks.
