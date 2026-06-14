@@ -96,13 +96,19 @@ __global__ void softmax(float* x, float* out, int rows, int cols) {
 
   const float* row_x = x + row * cols;
   float* row_out = out + row * cols;
+  const float4* row_x4 = reinterpret_cast<const float4*>(row_x);
+  int vec_cols = cols / 4;
 
   // reduce over one row 
   float thread_max = -FLT_MAX;
 
   // BLOCK_SIZE threads per row, so each thread read is strided by BLOCK_SIZE 
   // each thread has to read multiple elements in the row
-  for (int col = tid; col < cols; col += BLOCK_SIZE) {
+  for (int col = tid; col < vec_cols; col += BLOCK_SIZE) {
+      float4 v = row_x4[col];
+      thread_max = fmaxf(thread_max, fmaxf(fmaxf(v.x, v.y), fmaxf(v.z, v.w)));
+  }
+  for (int col = vec_cols * 4 + tid; col < cols; col += BLOCK_SIZE) {
       thread_max = fmaxf(thread_max, row_x[col]);
   }
 
@@ -123,7 +129,18 @@ __global__ void softmax(float* x, float* out, int rows, int cols) {
   float thread_sum = 0.0f;
 
   // accumulate all the sums that tid is responsible for
-  for (int col = tid; col < cols; col += BLOCK_SIZE) {
+  for (int col = tid; col < vec_cols; col += BLOCK_SIZE) {
+    float4 v = row_x4[col];
+    float4 e = make_float4(
+        expf(v.x - row_max),
+        expf(v.y - row_max),
+        expf(v.z - row_max),
+        expf(v.w - row_max)
+    );
+    thread_sum += e.x + e.y + e.z + e.w;
+    reinterpret_cast<float4*>(row_out)[col] = e;
+  }
+  for (int col = vec_cols * 4 + tid; col < cols; col += BLOCK_SIZE) {
     float e = expf(row_x[col] - row_max);
     thread_sum += e;
     row_out[col] = e;
@@ -146,7 +163,6 @@ __global__ void softmax(float* x, float* out, int rows, int cols) {
       row_out[col] /= row_sum;
   }
 }
-
 int main() {
     constexpr int BLOCK_SIZE = 256;
 
@@ -178,14 +194,49 @@ int main() {
     dim3 block(BLOCK_SIZE);
     dim3 grid(rows);
 
-    softmax<BLOCK_SIZE><<<grid, block>>>(
-        d_x,
-        d_out,
-        rows,
-        cols
-    );
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
 
+    softmax<BLOCK_SIZE><<<grid, block>>>(d_x, d_out, rows, cols);
     cudaDeviceSynchronize();
+
+    const int iters = 1000;
+
+    cudaEventRecord(start);
+
+    for (int i = 0; i < iters; i++) {
+        softmax<BLOCK_SIZE><<<grid, block>>>(d_x, d_out, rows, cols);
+    }
+
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+
+    float ms = 0.0f;
+    cudaEventElapsedTime(&ms, start, stop);
+
+    float avg_ms = ms / iters;
+
+    double total_flops =
+        static_cast<double>(rows) *
+        static_cast<double>(cols) *
+        4.0 *
+        iters;
+
+    double gflops =
+        total_flops /
+        (ms * 1e6);
+
+    double bytes =
+        static_cast<double>(rows) *
+        cols *
+        sizeof(float) *
+        3.0 *
+        iters;
+
+    double gbps =
+        bytes /
+        (ms * 1e6);
 
     cudaMemcpy(
         h_out.data(),
@@ -193,6 +244,10 @@ int main() {
         rows * cols * sizeof(float),
         cudaMemcpyDeviceToHost
     );
+
+    std::cout << "Average kernel time: " << avg_ms << " ms\n";
+    std::cout << "Throughput: " << gflops << " GFLOP/s\n";
+    std::cout << "Bandwidth: " << gbps << " GB/s\n\n";
 
     std::cout << "First 10 outputs of row 0:\n";
     for (int i = 0; i < 10; i++) {
@@ -217,9 +272,11 @@ int main() {
     std::cout << "Row 0 sum = " << sum << "\n";
     std::cout << "Max prob = " << max_prob << "\n";
 
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
+
     cudaFree(d_x);
     cudaFree(d_out);
 
     return 0;
 }
-
