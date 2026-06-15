@@ -287,4 +287,16 @@ inline void gemm_tensor_core_kernel(const float* A, const float* B, float* C, in
         }
     }
 }
+#else
+
+__global__
+inline void gemm_tensor_core_kernel(const float* A, const float* B, float* C, int M, int N, int K) {
+    (void)A;
+    (void)B;
+    (void)C;
+    (void)M;
+    (void)N;
+    (void)K;
+}
+
 #endif

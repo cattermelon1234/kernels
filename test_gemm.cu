@@ -1,5 +1,6 @@
 #include <cuda_runtime.h>
 
+#include <iostream>
 #include <vector>
 
 #include "tests/gemm_benchmark.cuh"
@@ -33,6 +34,11 @@ int main() {
     CUDA_CHECK(cudaMemcpy(d_A, h_A.data(), M * K * sizeof(float), cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(d_B, h_B.data(), K * N * sizeof(float), cudaMemcpyHostToDevice));
 
+    cudaDeviceProp prop;
+    CUDA_CHECK(cudaGetDeviceProperties(&prop, 0));
+    std::cout << "Device: " << prop.name << " compute capability "
+              << prop.major << "." << prop.minor << "\n\n";
+
     const double flops_per_iter = 2.0 * M * N * K;
     const double bytes_per_iter = 3.0 * M * N * sizeof(float);
     const size_t c_bytes = M * N * sizeof(float);
@@ -48,7 +54,13 @@ int main() {
 
     RUN_BENCHMARK("Normal tiled GEMM", gemm_tiled_kernel, block_naive, grid_naive);
     RUN_BENCHMARK("Optimized GEMM", gemm_optimized_kernel, block_opt, grid_opt);
-    RUN_BENCHMARK("Tensor core GEMM", gemm_tensor_core_kernel, block_tensor, grid_tensor);
+
+    if (prop.major >= 7) {
+        RUN_BENCHMARK("Tensor core GEMM", gemm_tensor_core_kernel, block_tensor, grid_tensor);
+    } else {
+        std::cout << "Tensor core GEMM\n";
+        std::cout << "skipped: compute capability < 7.0\n\n";
+    }
 
     CUDA_CHECK(cudaFree(d_A));
     CUDA_CHECK(cudaFree(d_B));
