@@ -1,35 +1,18 @@
 #include <cuda_runtime.h>
 
-#include <iostream>
 #include <vector>
 
-#include "benchmark.cuh"
+#include "tests/gemm_benchmark.cuh"
 #include "gemm_kernels.cuh"
 
-#define RUN_BENCHMARK(LABEL, KERNEL, BLOCK_CFG, GRID_CFG) do { \
-    cudaMemset(d_C, 0, c_bytes); \
-    KERNEL<<<GRID_CFG, BLOCK_CFG>>>(d_A, d_B, d_C, M, N, K); \
-    cudaDeviceSynchronize(); \
-    BenchmarkTimer timer; \
-    timer.begin(); \
-    for (int i = 0; i < iters; ++i) { \
-        KERNEL<<<GRID_CFG, BLOCK_CFG>>>(d_A, d_B, d_C, M, N, K); \
-    } \
-    timer.end(); \
-    std::cout << LABEL << "\n"; \
-    benchmark_report(flops_per_iter, bytes_per_iter, iters, timer.elapsed_ms()); \
-    std::cout << "\n"; \
-} while (0)
-
 int main() {
-    const int M = 128;
-    const int N = 128;
-    const int K = 128;
-    const int iters = 1000;
+    const int M = 1024;
+    const int N = 1024;
+    const int K = 1024;
+    const int iters = 100;
 
     std::vector<float> h_A(M * K);
     std::vector<float> h_B(K * N);
-    std::vector<float> h_C(M * N);
 
     for (int i = 0; i < M * K; ++i) {
         h_A[i] = 1.0f;
@@ -43,12 +26,12 @@ int main() {
     float* d_B;
     float* d_C;
 
-    cudaMalloc(&d_A, M * K * sizeof(float));
-    cudaMalloc(&d_B, K * N * sizeof(float));
-    cudaMalloc(&d_C, M * N * sizeof(float));
+    CUDA_CHECK(cudaMalloc(&d_A, M * K * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_B, K * N * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_C, M * N * sizeof(float)));
 
-    cudaMemcpy(d_A, h_A.data(), M * K * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_B, h_B.data(), K * N * sizeof(float), cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMemcpy(d_A, h_A.data(), M * K * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_B, h_B.data(), K * N * sizeof(float), cudaMemcpyHostToDevice));
 
     const double flops_per_iter = 2.0 * M * N * K;
     const double bytes_per_iter = 3.0 * M * N * sizeof(float);
@@ -67,11 +50,9 @@ int main() {
     RUN_BENCHMARK("Optimized GEMM", gemm_optimized_kernel, block_opt, grid_opt);
     RUN_BENCHMARK("Tensor core GEMM", gemm_tensor_core_kernel, block_tensor, grid_tensor);
 
-    cudaMemcpy(h_C.data(), d_C, c_bytes, cudaMemcpyDeviceToHost);
-
-    cudaFree(d_A);
-    cudaFree(d_B);
-    cudaFree(d_C);
+    CUDA_CHECK(cudaFree(d_A));
+    CUDA_CHECK(cudaFree(d_B));
+    CUDA_CHECK(cudaFree(d_C));
 
     return 0;
 }
