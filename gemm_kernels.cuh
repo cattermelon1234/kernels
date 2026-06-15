@@ -4,7 +4,7 @@
 #include <cuda_fp16.h>
 #include <mma.h>
 
-#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 700
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
 using namespace nvcuda;
 #endif
 
@@ -14,11 +14,11 @@ constexpr int REG = 4;
 
 constexpr int TENSOR_B_M = 128;
 constexpr int TENSOR_B_N = 128;
-constexpr int TENSOR_B_K = 16;
+constexpr int TENSOR_B_K = 8;
 constexpr int TENSOR_MMA_M = 16;
 constexpr int TENSOR_MMA_N = 16;
-constexpr int TENSOR_MMA_K = 16;
-constexpr int TENSOR_WARP_TILE = 64;
+constexpr int TENSOR_MMA_K = 8;
+constexpr int TENSOR_WARP_TILE = 32;
 constexpr int TENSOR_WARP_M = TENSOR_WARP_TILE / TENSOR_MMA_M;
 constexpr int TENSOR_WARP_N = TENSOR_WARP_TILE / TENSOR_MMA_N;
 constexpr int TENSOR_WARPS_M = TENSOR_B_M / TENSOR_WARP_TILE;
@@ -152,7 +152,7 @@ inline void gemm_optimized_kernel(const float* A, const float* B, float* C, int 
     }
 }
 
-#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 700
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
 
 using TensorAccFrag = wmma::fragment<
     wmma::accumulator,
@@ -162,13 +162,13 @@ using TensorAccFrag = wmma::fragment<
 using TensorAFrag = wmma::fragment<
     wmma::matrix_a,
     TENSOR_MMA_M, TENSOR_MMA_N, TENSOR_MMA_K,
-    half,
+    wmma::precision::tf32,
     wmma::row_major>;
 
 using TensorBFrag = wmma::fragment<
     wmma::matrix_b,
     TENSOR_MMA_M, TENSOR_MMA_N, TENSOR_MMA_K,
-    half,
+    wmma::precision::tf32,
     wmma::row_major>;
 
 __device__ __forceinline__
@@ -193,8 +193,8 @@ void tensor_outer_product(
 
 __global__
 inline void gemm_tensor_core_kernel(const float* A, const float* B, float* C, int M, int N, int K) {
-    __shared__ half As[TENSOR_B_M][TENSOR_B_K];
-    __shared__ half Bs[TENSOR_B_K][TENSOR_B_N];
+    __shared__ float As[TENSOR_B_M][TENSOR_B_K];
+    __shared__ float Bs[TENSOR_B_K][TENSOR_B_N];
 
     int tid = threadIdx.y * blockDim.x + threadIdx.x;
     int warp_id = threadIdx.y;
@@ -225,9 +225,9 @@ inline void gemm_tensor_core_kernel(const float* A, const float* B, float* C, in
             int global_col = k0 + col;
 
             if (global_row < M && global_col < K) {
-                As[row][col] = __float2half(A[global_row * K + global_col]);
+                As[row][col] = A[global_row * K + global_col];
             } else {
-                As[row][col] = __float2half(0.0f);
+                As[row][col] = 0.0f;
             }
         }
 
@@ -238,9 +238,9 @@ inline void gemm_tensor_core_kernel(const float* A, const float* B, float* C, in
             int global_col = block_col + col;
 
             if (global_row < K && global_col < N) {
-                Bs[row][col] = __float2half(B[global_row * N + global_col]);
+                Bs[row][col] = B[global_row * N + global_col];
             } else {
-                Bs[row][col] = __float2half(0.0f);
+                Bs[row][col] = 0.0f;
             }
         }
 

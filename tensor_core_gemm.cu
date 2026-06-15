@@ -5,31 +5,31 @@
 #include <iostream>
 #include <vector>
 
-#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 700
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
 using namespace nvcuda;
 #endif
 
 constexpr int B_M = 128;
 constexpr int B_N = 128;
-constexpr int B_K = 16;
+constexpr int B_K = 8;
 
 constexpr int MMA_M = 16;
 constexpr int MMA_N = 16;
-constexpr int MMA_K = 16;
+constexpr int MMA_K = 8;
 
-constexpr int WARP_TILE = 64;
+constexpr int WARP_TILE = 32;
 
-constexpr int WARP_M = WARP_TILE / MMA_M; // 4
-constexpr int WARP_N = WARP_TILE / MMA_N; // 4
+constexpr int WARP_M = WARP_TILE / MMA_M; // 2
+constexpr int WARP_N = WARP_TILE / MMA_N; // 2
 
-constexpr int WARPS_M = B_M / WARP_TILE; // 2
-constexpr int WARPS_N = B_N / WARP_TILE; // 2
-constexpr int WARPS_PER_BLOCK = WARPS_M * WARPS_N; // 4
+constexpr int WARPS_M = B_M / WARP_TILE; // 4
+constexpr int WARPS_N = B_N / WARP_TILE; // 4
+constexpr int WARPS_PER_BLOCK = WARPS_M * WARPS_N; // 16
 
 __global__ void GEMM(const float* A, const float* B, float* C,
           int M, int N, int K);
 
-#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 700
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
 
 using AccFrag = wmma::fragment<
     wmma::accumulator,
@@ -39,13 +39,13 @@ using AccFrag = wmma::fragment<
 using AFrag = wmma::fragment<
     wmma::matrix_a,
     MMA_M, MMA_N, MMA_K,
-    half,
+    wmma::precision::tf32,
     wmma::row_major>;
 
 using BFrag = wmma::fragment<
     wmma::matrix_b,
     MMA_M, MMA_N, MMA_K,
-    half,
+    wmma::precision::tf32,
     wmma::row_major>;
 
 __device__ __forceinline__
@@ -79,12 +79,12 @@ __global__
 void GEMM(const float* A, const float* B, float* C,
           int M, int N, int K)
 {
-    __shared__ half As[B_M][B_K];
-    __shared__ half Bs[B_K][B_N];
+    __shared__ float As[B_M][B_K];
+    __shared__ float Bs[B_K][B_N];
 
     int tid = threadIdx.y * blockDim.x + threadIdx.x;
 
-    int warp_id = threadIdx.y; // because block is dim3(32, 4)
+    int warp_id = threadIdx.y; // because block is dim3(32, 16)
     int lane_id = threadIdx.x;
 
     int block_row = blockIdx.y * B_M;
@@ -117,9 +117,9 @@ void GEMM(const float* A, const float* B, float* C,
             int global_col = k0 + col;
 
             if (global_row < M && global_col < K) {
-                As[row][col] = __float2half(A[global_row * K + global_col]);
+                As[row][col] = A[global_row * K + global_col];
             } else {
-                As[row][col] = __float2half(0.0f);
+                As[row][col] = 0.0f;
             }
         }
 
@@ -132,9 +132,9 @@ void GEMM(const float* A, const float* B, float* C,
             int global_col = block_col + col;
 
             if (global_row < K && global_col < N) {
-                Bs[row][col] = __float2half(B[global_row * N + global_col]);
+                Bs[row][col] = B[global_row * N + global_col];
             } else {
-                Bs[row][col] = __float2half(0.0f);
+                Bs[row][col] = 0.0f;
             }
         }
 
