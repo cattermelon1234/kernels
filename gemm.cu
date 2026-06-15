@@ -15,45 +15,45 @@ __global__ void GEMM(const float* A, const float* B, float* C,
 
   // blockIdx.y is the y index of the block we are on. blockIdx.y * TILE is the real row idx of the start of our tile
   // ty is the offset within a block, so we add ty to get the actual row idx. 
-  // C[row][col] represents the index of the final output
-  int row = blockIdx.y * TILE + ty;
-  int col = blockIdx.x * TILE + tx;
+  // c[row][col] represents the index of the final output
+  int row = blockidx.y * tile + ty;
+  int col = blockidx.x * tile + tx;
 
   float sum = 0.0f;
 
-  // number of tiles in K (shared dimension)
-  // for A, we are sliding our tiled window col-wise. for B, we are sliding our tiled window row-wise.
-  // one iteration of this loop calculates the partial product for one TILE, summing up all the tiles in the shared dimension leads to the final result.
-  for (int t = 0; t < (K + TILE - 1) / TILE; ++t) { 
-    // C[i][j] = sum_{k=0}^{k=K} A[i][k] * B[k][j]
-    // Notice the row of A remains the same, and the col of B remains the same
-    int a_col = t * TILE + tx; // we are currently on the t'th tile, with offset tx inside that tile
-    int b_row = t * TILE + ty;
+  // number of tiles in k (shared dimension)
+  // for a, we are sliding our tiled window col-wise. for b, we are sliding our tiled window row-wise.
+  // one iteration of this loop calculates the partial product for one tile, summing up all the tiles in the shared dimension leads to the final result.
+  for (int t = 0; t < (k + tile - 1) / tile; ++t) { 
+    // c[i][j] = sum_{k=0}^{k=k} a[i][k] * b[k][j]
+    // notice the row of a remains the same, and the col of b remains the same
+    int a_col = t * tile + tx; // we are currently on the t'th tile, with offset tx inside that tile
+    int b_row = t * tile + ty;
 
-    // since A and B are flattened:
-    // A[row][a_col] = A[row * K + a_col], K is the col dim. A[row][a_col] represents the element of A corresponding to A[ty][tx] that we want to load into our shared tile
-    // B[b_row][col] = B[b_row * N + col], N is the col dim. B[b_row][col] represents the element of B corresponding to B[ty][tx] that we want to load into our shared tile
-    if (row < M && a_col < K) {
-        As[ty][tx] = A[row * K + a_col];
+    // since a and b are flattened:
+    // a[row][a_col] = a[row * k + a_col], k is the col dim. a[row][a_col] represents the element of a corresponding to a[ty][tx] that we want to load into our shared tile
+    // b[b_row][col] = b[b_row * n + col], n is the col dim. b[b_row][col] represents the element of b corresponding to b[ty][tx] that we want to load into our shared tile
+    if (row < m && a_col < k) {
+        as[ty][tx] = a[row * k + a_col];
     } else {
-        As[ty][tx] = 0.0f;
+        as[ty][tx] = 0.0f;
     }
 
-    if (b_row < K && col < N) {
-        Bs[ty][tx] = B[b_row * N + col];
+    if (b_row < k && col < n) {
+        bs[ty][tx] = b[b_row * n + col];
     } else {
-        Bs[ty][tx] = 0.0f;
+        bs[ty][tx] = 0.0f;
     }
     // we sync threads here, waiting for every one of the 16x16=256 threads in our tile to load
     __syncthreads();
 
-    // calculate the partial result of C[row][col]
-    // The result is partial because we're essentially doing C[i][j] = Σ_t Σ_k A[i][t*TILE + k] * B[t*TILE + k][j]
+    // calculate the partial result of c[row][col]
+    // the result is partial because we're essentially doing c[i][j] = σ_t σ_k a[i][t*tile + k] * b[t*tile + k][j]
     // each iteration of the big loop calculates one inner summation
     
     // this loop calculates one dot product of a 1x16 * 16x1 vector
-    for (int k = 0; k < TILE; ++k) {
-      sum += As[ty][k] * Bs[k][tx];
+    for (int k = 0; k < tile; ++k) {
+      sum += as[ty][k] * bs[k][tx];
     }
     __syncthreads();
   }

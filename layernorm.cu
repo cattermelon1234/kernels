@@ -7,6 +7,8 @@
 #include <ctime>
 #include <cstdlib>
 
+#include "benchmark.cuh"
+
 #define WARP_SIZE 32
 
 template<typename T>
@@ -149,28 +151,22 @@ int main() {
     dim3 block(BLOCK_SIZE);
     dim3 grid(rows);
 
-    cudaEvent_t start, stop;
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
+    BenchmarkTimer timer;
 
     layernorm<BLOCK_SIZE><<<grid, block>>>(d_x.data(), d_out.data(), rows, cols, eps);
     cudaDeviceSynchronize();
 
     const int iters = 1000;
 
-    cudaEventRecord(start);
+    timer.begin();
 
     for (int i = 0; i < iters; i++) {
         layernorm<BLOCK_SIZE><<<grid, block>>>(d_x.data(), d_out.data(), rows, cols, eps);
     }
 
-    cudaEventRecord(stop);
-    cudaEventSynchronize(stop);
+    timer.end();
 
-    float ms = 0.0f;
-    cudaEventElapsedTime(&ms, start, stop);
-
-    float avg_ms = ms / iters;
+    float ms = timer.elapsed_ms();
 
     cudaMemcpy(
         h_out.data(),
@@ -179,7 +175,18 @@ int main() {
         cudaMemcpyDeviceToHost
     );
 
-    std::cout << "Average kernel time: " << avg_ms << " ms\n\n";
+    benchmark_report(
+        static_cast<double>(rows) *
+            static_cast<double>(cols) *
+            4.0,
+        static_cast<double>(rows) *
+            static_cast<double>(cols) *
+            sizeof(float) *
+            3.0,
+        iters,
+        ms
+    );
+    std::cout << "\n";
 
     std::cout << "First 10 outputs of row 0:\n";
     for (int i = 0; i < 10; i++) {
@@ -192,9 +199,6 @@ int main() {
         std::cout << h_out[i] << " ";
     }
     std::cout << "\n";
-
-    cudaEventDestroy(start);
-    cudaEventDestroy(stop);
 
     return 0;
 }

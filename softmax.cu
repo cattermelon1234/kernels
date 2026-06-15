@@ -5,6 +5,8 @@
 #include <vector>
 #include <iostream>
 
+#include "benchmark.cuh"
+
 #define TILE 16
 #define WARP_SIZE 32
 
@@ -194,49 +196,22 @@ int main() {
     dim3 block(BLOCK_SIZE);
     dim3 grid(rows);
 
-    cudaEvent_t start, stop;
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
+    BenchmarkTimer timer;
 
     softmax<BLOCK_SIZE><<<grid, block>>>(d_x, d_out, rows, cols);
     cudaDeviceSynchronize();
 
     const int iters = 1000;
 
-    cudaEventRecord(start);
+    timer.begin();
 
     for (int i = 0; i < iters; i++) {
         softmax<BLOCK_SIZE><<<grid, block>>>(d_x, d_out, rows, cols);
     }
 
-    cudaEventRecord(stop);
-    cudaEventSynchronize(stop);
+    timer.end();
 
-    float ms = 0.0f;
-    cudaEventElapsedTime(&ms, start, stop);
-
-    float avg_ms = ms / iters;
-
-    double total_flops =
-        static_cast<double>(rows) *
-        static_cast<double>(cols) *
-        4.0 *
-        iters;
-
-    double gflops =
-        total_flops /
-        (ms * 1e6);
-
-    double bytes =
-        static_cast<double>(rows) *
-        cols *
-        sizeof(float) *
-        3.0 *
-        iters;
-
-    double gbps =
-        bytes /
-        (ms * 1e6);
+    float ms = timer.elapsed_ms();
 
     cudaMemcpy(
         h_out.data(),
@@ -245,9 +220,18 @@ int main() {
         cudaMemcpyDeviceToHost
     );
 
-    std::cout << "Average kernel time: " << avg_ms << " ms\n";
-    std::cout << "Throughput: " << gflops << " GFLOP/s\n";
-    std::cout << "Bandwidth: " << gbps << " GB/s\n\n";
+    benchmark_report(
+        static_cast<double>(rows) *
+            static_cast<double>(cols) *
+            4.0,
+        static_cast<double>(rows) *
+            static_cast<double>(cols) *
+            sizeof(float) *
+            3.0,
+        iters,
+        ms
+    );
+    std::cout << "\n";
 
     std::cout << "First 10 outputs of row 0:\n";
     for (int i = 0; i < 10; i++) {
@@ -271,9 +255,6 @@ int main() {
 
     std::cout << "Row 0 sum = " << sum << "\n";
     std::cout << "Max prob = " << max_prob << "\n";
-
-    cudaEventDestroy(start);
-    cudaEventDestroy(stop);
 
     cudaFree(d_x);
     cudaFree(d_out);
