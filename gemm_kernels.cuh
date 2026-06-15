@@ -4,7 +4,9 @@
 #include <cuda_fp16.h>
 #include <mma.h>
 
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 700
 using namespace nvcuda;
+#endif
 
 constexpr int NAIVE_TILE = 16;
 constexpr int OPT_TILE = 64;
@@ -23,42 +25,7 @@ constexpr int TENSOR_WARPS_M = TENSOR_B_M / TENSOR_WARP_TILE;
 constexpr int TENSOR_WARPS_N = TENSOR_B_N / TENSOR_WARP_TILE;
 constexpr int TENSOR_WARPS_PER_BLOCK = TENSOR_WARPS_M * TENSOR_WARPS_N;
 
-using TensorAccFrag = wmma::fragment<
-    wmma::accumulator,
-    TENSOR_MMA_M, TENSOR_MMA_N, TENSOR_MMA_K,
-    float>;
-
-using TensorAFrag = wmma::fragment<
-    wmma::matrix_a,
-    TENSOR_MMA_M, TENSOR_MMA_N, TENSOR_MMA_K,
-    half,
-    wmma::row_major>;
-
-using TensorBFrag = wmma::fragment<
-    wmma::matrix_b,
-    TENSOR_MMA_M, TENSOR_MMA_N, TENSOR_MMA_K,
-    half,
-    wmma::row_major>;
-
-__device__ __forceinline__
-void tensor_mma_accumulate(TensorAccFrag& c, TensorAFrag& a, TensorBFrag& b) {
-    wmma::mma_sync(c, a, b, c);
-}
-
-__device__ __forceinline__
-void tensor_outer_product(
-    TensorAccFrag c[TENSOR_WARP_M][TENSOR_WARP_N],
-    TensorAFrag a[TENSOR_WARP_M],
-    TensorBFrag b[TENSOR_WARP_N])
-{
-#pragma unroll
-    for (int i = 0; i < TENSOR_WARP_M; i++) {
-#pragma unroll
-        for (int j = 0; j < TENSOR_WARP_N; j++) {
-            tensor_mma_accumulate(c[i][j], a[i], b[j]);
-        }
-    }
-}
+__global__ void gemm_tensor_core_kernel(const float* A, const float* B, float* C, int M, int N, int K);
 
 __global__
 inline void gemm_tiled_kernel(const float* A, const float* B, float* C, int M, int N, int K) {
@@ -185,6 +152,45 @@ inline void gemm_optimized_kernel(const float* A, const float* B, float* C, int 
     }
 }
 
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 700
+
+using TensorAccFrag = wmma::fragment<
+    wmma::accumulator,
+    TENSOR_MMA_M, TENSOR_MMA_N, TENSOR_MMA_K,
+    float>;
+
+using TensorAFrag = wmma::fragment<
+    wmma::matrix_a,
+    TENSOR_MMA_M, TENSOR_MMA_N, TENSOR_MMA_K,
+    half,
+    wmma::row_major>;
+
+using TensorBFrag = wmma::fragment<
+    wmma::matrix_b,
+    TENSOR_MMA_M, TENSOR_MMA_N, TENSOR_MMA_K,
+    half,
+    wmma::row_major>;
+
+__device__ __forceinline__
+void tensor_mma_accumulate(TensorAccFrag& c, TensorAFrag& a, TensorBFrag& b) {
+    wmma::mma_sync(c, a, b, c);
+}
+
+__device__ __forceinline__
+void tensor_outer_product(
+    TensorAccFrag c[TENSOR_WARP_M][TENSOR_WARP_N],
+    TensorAFrag a[TENSOR_WARP_M],
+    TensorBFrag b[TENSOR_WARP_N])
+{
+#pragma unroll
+    for (int i = 0; i < TENSOR_WARP_M; i++) {
+#pragma unroll
+        for (int j = 0; j < TENSOR_WARP_N; j++) {
+            tensor_mma_accumulate(c[i][j], a[i], b[j]);
+        }
+    }
+}
+
 __global__
 inline void gemm_tensor_core_kernel(const float* A, const float* B, float* C, int M, int N, int K) {
     __shared__ half As[TENSOR_B_M][TENSOR_B_K];
@@ -281,3 +287,4 @@ inline void gemm_tensor_core_kernel(const float* A, const float* B, float* C, in
         }
     }
 }
+#endif
