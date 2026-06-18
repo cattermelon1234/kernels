@@ -1,0 +1,46 @@
+some key kernel optimization techniques: 
+
+shared memory (L1 cache), tiling
+loading from global memory is slow. Every memory load from global memory takes hundreds of cycles. 
+This is not solely a GPU problem, but a general computer architecture bottleneck. DRAM is 
+much farther away from the compute units than the registers and caches. Additionally, DRAM is designed
+for high throughput rather than low latency. Combined with possible cache misses, page faults, and TLB 
+misses, accessing global memory is very expensive, and is often the bottleneck of many GPU kernels. 
+
+In CPU performance engineering, we typically try to mitigate this by optimizing for cache locality, 
+prefetching, and minimizing cache misses. Modern GPUs give us a special type of memory called "shared memory", 
+which is actually a partition of the L1 cache given explicitly to the programmer to control. As a result, 
+loading data from shared memory is much faster than loading from global memory: think of it as accessing data 
+from the L1 cache instead of from DRAM. The key to optimizing GPU kernels is to minimize global memory accesses and maximize shared memory usage. 
+
+For every kernel, we have to eventually load every single element from the global memory into the registers to 
+perform computations. The key win in shared memory is that oftentimes, kernels reuse the same data multiple times. 
+Take the GEMM (general matrix multiply) kernel for example. In naive gemm, thread (i, j) computes the output scalar 
+at C[i][j] = A[i][:] * B[:][j]. But notice that thread (i, j+1) also needs to compute C[i][j+1] = A[i][:] * B[:][j+1]. 
+Similarly, every single thread in the same row and column will load the same row of A and same column of B from global 
+memory, leading to a huge number of redundant global memory accesses. 
+
+We would love to load A into shared memory and B into shared memory once, and work from there. Unfortunately, the size of 
+shared memory is very limited. The bigger shared memory gets, the fewer blocks we can have resident on the SM at the same time,
+leading to low occupancy and underutilization of the GPU. Thus, we would like to only load small tiles of A and B into 
+shared memory at a time. This is what "tiling" is. We break down the output matrix C into small tiles, and have each thread block 
+compute one tile of the output matrix C.
+
+- coalesced memory access 
+- kernel fusion 
+- block-wide reduction 
+- warp-wide reduction 
+- register blocking
+- vectorized loads
+- loop unrolling 
+- pipelining
+- async memory copy, double buffering
+- shared bank conflicts, padding/swizzling
+- tensor core utilization 
+- outer product GEMM 
+
+- sm occupancy
+- instruction level parallelism (ILP)
+- compute-bound vs memory-bound 
+- thread divergence/branching 
+
