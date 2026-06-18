@@ -5,9 +5,7 @@
 #include <iostream>
 #include <vector>
 
-#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
 using namespace nvcuda;
-#endif
 
 constexpr int B_M = 128;
 constexpr int B_N = 128;
@@ -28,8 +26,6 @@ constexpr int WARPS_PER_BLOCK = WARPS_M * WARPS_N; // 16
 
 __global__ void GEMM(const float* A, const float* B, float* C,
           int M, int N, int K);
-
-#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
 
 using AccFrag = wmma::fragment<
     wmma::accumulator,
@@ -182,22 +178,6 @@ void GEMM(const float* A, const float* B, float* C,
         }
     }
 }
-
-#else
-
-__global__
-void GEMM(const float* A, const float* B, float* C,
-          int M, int N, int K)
-{
-    (void)A;
-    (void)B;
-    (void)C;
-    (void)M;
-    (void)N;
-    (void)K;
-}
-
-#endif
 
 int main() {
     const int M = 128;

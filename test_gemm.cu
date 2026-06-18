@@ -7,10 +7,10 @@
 #include "gemm_kernels.cuh"
 
 int main() {
-    const int M = 1024;
-    const int N = 1024;
-    const int K = 1024;
-    const int iters = 100;
+    const int M = 2048;
+    const int N = 2048;
+    const int K = 2048;
+    const int iters = 50;
 
     std::vector<float> h_A(M * K);
     std::vector<float> h_B(K * N);
@@ -52,8 +52,18 @@ int main() {
     dim3 block_tensor(32, TENSOR_WARPS_PER_BLOCK);
     dim3 grid_tensor((N + TENSOR_B_N - 1) / TENSOR_B_N, (M + TENSOR_B_M - 1) / TENSOR_B_M);
 
+    dim3 block_hyper(32, HYPER_WARPS_PER_BLOCK);
+    dim3 grid_hyper((N + HYPER_B_N - 1) / HYPER_B_N, (M + HYPER_B_M - 1) / HYPER_B_M);
+
     RUN_BENCHMARK("Normal tiled GEMM", gemm_tiled_kernel, block_naive, grid_naive);
     RUN_BENCHMARK("Optimized GEMM", gemm_optimized_kernel, block_opt, grid_opt);
+
+    if (prop.major >= 8) {
+        RUN_BENCHMARK("Hyperoptimized GEMM", gemm_hyperoptimized_kernel, block_hyper, grid_hyper);
+    } else {
+        std::cout << "Hyperoptimized GEMM\n";
+        std::cout << "skipped: compute capability < 8.0\n\n";
+    }
 
     if (prop.major >= 7) {
         RUN_BENCHMARK("Tensor core GEMM", gemm_tensor_core_kernel, block_tensor, grid_tensor);
