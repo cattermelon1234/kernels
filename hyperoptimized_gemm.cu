@@ -12,7 +12,7 @@ namespace cg = cooperative_groups;
 
 constexpr int B_M = 128;
 constexpr int B_N = 128;
-constexpr int B_K = 32;
+constexpr int B_K = 16;
 
 constexpr int MMA_M = 16;
 constexpr int MMA_N = 16;
@@ -257,6 +257,7 @@ void GEMM(const float* A, const float* B, float* C,
     }
 }
 
+#ifndef GEMM_DISABLE_STANDALONE_MAIN
 int main() {
     const int M = 128;
     const int K = 128;
@@ -310,3 +311,4 @@ int main() {
 
     return 0;
 }
+#endif

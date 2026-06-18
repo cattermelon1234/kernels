@@ -179,6 +179,7 @@ void GEMM(const float* A, const float* B, float* C,
     }
 }
 
+#ifndef GEMM_DISABLE_STANDALONE_MAIN
 int main() {
     const int M = 128;
     const int K = 128;
@@ -232,3 +233,4 @@ int main() {
 
     return 0;
 }
+#endif

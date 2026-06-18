@@ -67,6 +67,7 @@ __global__ void GEMM(const float* A, const float* B, float* C,
   // other blocks will independently compute other 16x16 tiles in our matmul
 }
 
+#ifndef GEMM_DISABLE_STANDALONE_MAIN
 int main() {
     const int M = 64;
     const int K = 64;
@@ -144,3 +145,4 @@ int main() {
 
     return 0;
 }
+#endif

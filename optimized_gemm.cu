@@ -101,6 +101,7 @@ __global__ void GEMM(const float* A, const float* B, float* C,
   }
 }
 
+#ifndef GEMM_DISABLE_STANDALONE_MAIN
 int main() {
     const int M = 64;
     const int K = 64;
@@ -145,7 +146,7 @@ int main() {
     );
 
     // Launch kernel
-    dim3 block(TILE, TILE);
+    dim3 block(TILE / REG, TILE / REG);
 
     dim3 grid(
         (N + TILE - 1) / TILE,
@@ -178,3 +179,4 @@ int main() {
 
     return 0;
 }
+#endif
