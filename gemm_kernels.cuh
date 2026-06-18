@@ -30,7 +30,7 @@ constexpr int TENSOR_WARPS_PER_BLOCK = TENSOR_WARPS_M * TENSOR_WARPS_N;
 
 constexpr int HYPER_B_M = 128;
 constexpr int HYPER_B_N = 128;
-constexpr int HYPER_B_K = 32;
+constexpr int HYPER_B_K = 16;
 constexpr int HYPER_MMA_M = 16;
 constexpr int HYPER_MMA_N = 16;
 constexpr int HYPER_MMA_K = 8;
