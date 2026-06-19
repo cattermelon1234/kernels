@@ -27,7 +27,27 @@ shared memory at a time. This is what "tiling" is. We break down the output matr
 compute one tile of the output matrix C.
 
 - coalesced memory access 
+
+A SM runs warps of 32 threads concurrently. When threads in a warp access global memory, the GPU will try to coalesce those memory accesses into as few transactions as possible.
+If the threads in a warp access contiguous memory addresses, then the GPU can coalesce those accesses into a single transaction, which is much faster than having each thread 
+access memory independently. However, if the threads in a warp access non-contiguous memory addresses, then the GPU will have to issue multiple memory transactions, which 
+is bad for performance. Thus, we want to ensure that threads in a warp access contiguous memory. Often, this means accessing memory in a 
+row-major order in memory, which is the default layout for C/C++ arrays.
+
+This is also the reason why we try to use striped access patterns when loading data into shared memory. If each thread were instead to load 
+a contiguous chunk of data, the coalescer is unable to detect the contiguous access pattern, and we end up with multiple transactions instead of one. 
+A properly coalesced access pattern looks like: 
+load A[threadIdx.x * 32 + i] 
+thread 0: loads A[0], A[32], ...
+thread 1: loads A[1], A[33], ...
+thread 2: loads A[2], A[34], ...
+....
+thread 31: loads A[31], A[63], ...
+
+The coalescer is able to coalesce into: load A[0:31], A[32:63], ... which is much more efficient.
+
 - kernel fusion 
+
 - block-wide reduction 
 - warp-wide reduction 
 - register blocking
