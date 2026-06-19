@@ -54,7 +54,76 @@ The coalescer is able to coalesce into: load A[0:31], A[32:63], ... which is muc
 - vectorized loads
 - loop unrolling 
 - pipelining
+
+GPU pipelining works much like CPU pipelining. In CPU pipelining, we have multiple stages of instruction execution so that 
+while one instruction is being executed, another can be decoded, and another can be fetched. This allows us to keep every stage 
+of the CPU busy, improving performance. 
+
+In GPU pipelining, we have multiple stages of computation in a kernel. For example, in a GEMM kernel, we have the following stages:
+1. load tile of A and B into shared memory
+2. compute products using the data in shared memory
+3. write results back to global memory 
+
+These stages can be pipelined, so while a tile is being computed, another is being loaded into shared memory, and another is 
+being written back to global memory. This allows us to keep the GPU busy and improve performance. 
+
+before: 
+1 2 3 
+      1 2 3 
+            1 2 3
+
+after:
+1 2 3 1 2 3
+X 1 2 3 1 2
+X X 1 2 3 1
+
 - async memory copy, double buffering
+
+Async memory copying and double buffering are techniques that utilize GPU pipelining. 
+
+We already know that global memory access is expensive. If a GPU kernel is memory-bound, that means that most of the warps are sitting 
+idle, waiting for memory accesses to complete. Async memory copying and double buffering are techniques to mitigate this. 
+The idea is that while we are computing the results using one tile of data in shared memory, we can asynchronously begin loading the next 
+tile of data into shared memory, as explained in pipelining. This way, we can overlap computation with memory access, keeping the GPU busy and improving performance. 
+
+To do this, we use two buffers. The first buffer is used for computation, while the second buffer is used for loading the next tile of data. 
+CUDA provides async memory copy functions, such as cudaMemcpyAsync, allowing us to overlap host-device transfers with kernel execution.
+Modern GPUs also provide cp.async (exposed through cuda::memcpy_async), which allows data to be copied directly from global memory into
+shared memory asynchronously within a kernel.
+
+With double buffering, while one shared-memory buffer is being used by tensor cores or CUDA cores for computation, the other buffer is
+simultaneously being populated with the next tile of data from global memory. Once computation on the current tile is complete, the roles
+of the two buffers are swapped. The previously loaded buffer becomes the compute buffer, and the old compute buffer becomes the load buffer.
+
+Without double buffering, execution typically follows a pattern of:
+```
+    Load Tile 0
+    Compute Tile 0
+    Load Tile 1
+    Compute Tile 1
+    ...
+```
+With double buffering, execution can be pipelined as follows:
+```
+    Load Tile 0
+    Compute Tile 0, Load Tile 1
+    Compute Tile 1, Load Tile 2
+    Compute Tile 2, Load Tile 3
+    ...
+```
+
+In the actual implementation, this pipeline follows a production-consumption model.
+```
+producer_acquire(next_buffer); // producer (memory loader) acquires next buffer for loading
+async_copy(tile_next, next_buffer); // producer starts load process
+producer_commit(next_buffer); // producer finishes issuing async copies
+
+consumer_compute(cur_buffer); // consumer does calculation on cur buffer, already ready from last iter
+consumer_release(cur_buffer); // consumer signals it is done, ready for buffer to be reused for next iter load
+
+consumer_wait(next_buffer); // consumer waits for producer to finish loading next buffer before computing
+```
+
 - shared bank conflicts, padding/swizzling
 - tensor core utilization 
 - outer product GEMM 
