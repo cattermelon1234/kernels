@@ -51,8 +51,46 @@ The coalescer is able to coalesce into: load A[0:31], A[32:63], ... which is muc
 - block-wide reduction 
 - warp-wide reduction 
 - register blocking
+
 - vectorized loads
+A vectorized load is when we load multiple elements from memory into a register with a single instruction.
+The key to a vectorized load is a "trick", which is we can interpret a contiguous chunk of memory as a 
+vector of a certain type. For example, if we have an array of floats (4 bytes each), we can instead 
+interpret this array as an array of float4 (16 bytes each). Then, we can load a float4 from memory into a 
+register with a single instruction, effectively loading 4 floats at once.
+
+This reduces the number of memory transactions and can significantly improve performance. Each thread can now load 
+4 elements from global memory with a single instruction, and the coalescer can coalesce these vectorized loads into even fewer transactions.
+
+int tid = blockIdx.x * blockDim.x + threadIdx.x;
+
+// Treat the float array as an array of float4s
+float4* A_vec = reinterpret_cast<float4*>(A);
+
+// Each thread processes 4 floats
+float4 v = A_vec[tid];
+
+// Update all 4 elements in registers
+v.x += 1.0f;
+v.y += 1.0f;
+v.z += 1.0f;
+v.w += 1.0f;
+
+// Write back with a single vectorized store
+A_vec[tid] = v;
+
 - loop unrolling 
+Loop unrolling is simply where we manually "unroll" loops by writing the for loop out manually for 
+a fixed number of iterations. This can improve performance because it reduces the overhead of loop 
+control (incrementing the loop variable, checking the loop condition, and branching back to the top of the loop).
+Branching can be expensive on the GPU due to the BTB and predictor failing. 
+
+#pragma unroll 
+for (int i = 0; i < TILE_SIZE; i++) {
+    // compute products using data in shared memory
+}
+
+Loop
 - pipelining
 
 GPU pipelining works much like CPU pipelining. In CPU pipelining, we have multiple stages of instruction execution so that 
