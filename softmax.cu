@@ -165,6 +165,7 @@ __global__ void softmax(float* x, float* out, int rows, int cols) {
       row_out[col] /= row_sum;
   }
 }
+
 int main() {
     constexpr int BLOCK_SIZE = 256;
 
