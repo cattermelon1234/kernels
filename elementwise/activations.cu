@@ -45,6 +45,28 @@ __global__ void relu(float* a, int n) {
     }
 }
 
+// gelu 
+__global__ void gelu(float* a, int n) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int stride = blockDim.x * gridDim.x;
+    float4* a4 = reinterpret_cast<float4*>(a);
+    int vec_n = n / 4;
+
+    for (int i = idx; i < vec_n; i += stride) {
+        float4 v = a4[i];
+        v.x = 0.5f * v.x * (1.0f + tanhf(0.7978845608028654f * (v.x + 0.044715f * v.x * v.x * v.x)));
+        v.y = 0.5f * v.y * (1.0f + tanhf(0.7978845608028654f * (v.y + 0.044715f * v.y * v.y * v.y)));
+        v.z = 0.5f * v.z * (1.0f + tanhf(0.7978845608028654f * (v.z + 0.044715f * v.z * v.z * v.z)));
+        v.w = 0.5f * v.w * (1.0f + tanhf(0.7978845608028654f * (v.w + 0.044715f * v.w * v.w * v.w)));
+        a4[i] = v;
+    }
+
+    for (int i = vec_n * 4 + idx; i < n; i += stride) {
+        float x = a[i];
+        a[i] = 0.5f * x * (1.0f + tanhf(0.7978845608028654f * (x + 0.044715f * x * x * x)));
+    }
+}
+
 __global__ void relu_back(float* a, float* grad_in, float* grad_out, int n) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     int stride = blockDim.x * gridDim.x;

@@ -29,9 +29,9 @@ function Invoke-BenchmarkBuild {
     Write-Host ""
 }
 
-Invoke-BenchmarkBuild -Source "bench_gemm.cu" -ExeName "bench_gemm.exe"
-Invoke-BenchmarkBuild -Source "bench_optimized_gemm.cu" -ExeName "bench_optimized_gemm.exe"
-Invoke-BenchmarkBuild -Source "bench_tensor_core_gemm.cu" -ExeName "bench_tensor_core_gemm.exe" -ExtraArgs @("-arch=sm_80")
-Invoke-BenchmarkBuild -Source "bench_hyperoptimized_gemm.cu" -ExeName "bench_hyperoptimized_gemm.exe" -ExtraArgs @("-arch=sm_80", "-Xcompiler", "/Zc:preprocessor")
+Invoke-BenchmarkBuild -Source "benchmarks/bench_gemm.cu" -ExeName "bench_gemm.exe"
+Invoke-BenchmarkBuild -Source "benchmarks/bench_optimized_gemm.cu" -ExeName "bench_optimized_gemm.exe"
+Invoke-BenchmarkBuild -Source "benchmarks/bench_tensor_core_gemm.cu" -ExeName "bench_tensor_core_gemm.exe" -ExtraArgs @("-arch=sm_80")
+Invoke-BenchmarkBuild -Source "benchmarks/bench_hyperoptimized_gemm.cu" -ExeName "bench_hyperoptimized_gemm.exe" -ExtraArgs @("-arch=sm_80", "-Xcompiler", "/Zc:preprocessor")
 
 Write-Host "build artifacts: $buildDir"

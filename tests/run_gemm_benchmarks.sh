@@ -15,9 +15,9 @@ compile_and_run() {
   echo
 }
 
-compile_and_run bench_gemm.cu bench_gemm
-compile_and_run bench_optimized_gemm.cu bench_optimized_gemm
-compile_and_run bench_tensor_core_gemm.cu bench_tensor_core_gemm -arch=sm_80
-compile_and_run bench_hyperoptimized_gemm.cu bench_hyperoptimized_gemm -arch=sm_80
+compile_and_run benchmarks/bench_gemm.cu bench_gemm
+compile_and_run benchmarks/bench_optimized_gemm.cu bench_optimized_gemm
+compile_and_run benchmarks/bench_tensor_core_gemm.cu bench_tensor_core_gemm -arch=sm_80
+compile_and_run benchmarks/bench_hyperoptimized_gemm.cu bench_hyperoptimized_gemm -arch=sm_80
 
 echo "build artifacts: ${build_dir}"

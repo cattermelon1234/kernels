@@ -2,7 +2,7 @@
 #include <device_launch_parameters.h>
 
 #include "hyperoptimized_gemm_helper.cuh"
-#include "epilogues/linear.cuh"
+#include "../epilogues/linear.cuh"
 
 // Fused linear layer:
 // Y = epilogue(X * W, row, col)
@@ -53,4 +53,3 @@ void linear_kernel(
     linear_impl::TileStore<Epilogue> store_op{epilogue};
     hyperoptimized_gemm::hyperoptimized_gemm_block(X, W, Y, M, N, K, store_op);
 }
-

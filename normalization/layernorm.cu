@@ -7,7 +7,7 @@
 #include <ctime>
 #include <cstdlib>
 
-#include "benchmark.cuh"
+#include "../include/benchmark.cuh"
 
 #define WARP_SIZE 32
 

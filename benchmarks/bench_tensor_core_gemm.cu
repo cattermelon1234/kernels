@@ -3,10 +3,10 @@
 #include <iostream>
 #include <vector>
 
-#include "tests/gemm_benchmark.cuh"
+#include "../tests/gemm_benchmark.cuh"
 
 #define GEMM_DISABLE_STANDALONE_MAIN
-#include "tensor_core_gemm.cu"
+#include "../gemm/tensor_core_gemm.cu"
 
 int main() {
     const int M = 2048;

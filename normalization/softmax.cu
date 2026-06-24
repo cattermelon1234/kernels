@@ -5,7 +5,7 @@
 #include <vector>
 #include <iostream>
 
-#include "benchmark.cuh"
+#include "../include/benchmark.cuh"
 
 #define TILE 16
 #define WARP_SIZE 32

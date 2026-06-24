@@ -4,7 +4,7 @@
 #include <iostream>
 #include <cstdlib>
 
-#include "../benchmark.cuh"
+#include "../include/benchmark.cuh"
 
 inline void cuda_check(cudaError_t err, const char* expr, const char* file, int line) {
     if (err != cudaSuccess) {

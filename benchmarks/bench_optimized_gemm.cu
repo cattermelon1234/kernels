@@ -3,10 +3,10 @@
 #include <iostream>
 #include <vector>
 
-#include "tests/gemm_benchmark.cuh"
+#include "../tests/gemm_benchmark.cuh"
 
 #define GEMM_DISABLE_STANDALONE_MAIN
-#include "hyperoptimized_gemm.cu"
+#include "../gemm/optimized_gemm.cu"
 
 int main() {
     const int M = 2048;
@@ -40,10 +40,10 @@ int main() {
     const double bytes_per_iter = 3.0 * M * N * sizeof(float);
     const size_t c_bytes = M * N * sizeof(float);
 
-    dim3 block(32, WARPS_PER_BLOCK);
-    dim3 grid((N + B_N - 1) / B_N, (M + B_M - 1) / B_M);
+    dim3 block(TILE / REG, TILE / REG);
+    dim3 grid((N + TILE - 1) / TILE, (M + TILE - 1) / TILE);
 
-    RUN_BENCHMARK("Hyperoptimized GEMM", GEMM, block, grid);
+    RUN_BENCHMARK("Optimized GEMM", GEMM, block, grid);
 
     CUDA_CHECK(cudaFree(d_A));
     CUDA_CHECK(cudaFree(d_B));
