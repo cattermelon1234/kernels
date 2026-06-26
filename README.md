@@ -1,6 +1,6 @@
 kernels from scratch
 
-## Layout
+## repo
 
 - `elementwise/`: independent per-element kernels such as add, broadcast, and activations.
 - `reductions/`: kernels that reduce many inputs into fewer outputs, such as sum, dot, norm, max, and similarity.
