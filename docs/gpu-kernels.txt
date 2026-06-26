@@ -1,6 +1,7 @@
 some key kernel optimization techniques: 
 
-shared memory (L1 cache), tiling
+- shared memory (L1 cache), tiling
+
 loading from global memory is slow. Every memory load from global memory takes hundreds of cycles. 
 This is not solely a GPU problem, but a general computer architecture bottleneck. DRAM is 
 much farther away from the compute units than the registers and caches. Additionally, DRAM is designed
@@ -48,9 +49,56 @@ The coalescer is able to coalesce into: load A[0:31], A[32:63], ... which is muc
 
 - kernel fusion 
 
-- block-wide reduction 
+Kernel fusion combines multiple kernels into a single kernel. Again, inference and many GPU workloads are 
+memory-bound, not compute-bound. Every time we run a kernel, we have to pay an overhead cost, load our 
+tensor data from global memory into registers, and write the results back to global memory. 
+If we can combine multiple kernels into a single kernel, we can reduce the number of times we have to load 
+and store data from global memory, which can significantly improve performance.
+
+Kernel fusion is not always helpful. Reductions like sum, max, min, softmax, etc. are good examples of when 
+not to fuse kernels. These operations reduce many input elements into a smaller output, which requires synchronization 
+and communication across threads (or even thread blocks). Fusing additional work before or after the reduction often increases 
+register pressure, complicates synchronization, and can reduce parallelism. Instead, it is usually better to implement the reduction 
+as its own highly optimized kernel and then launch a separate kernel for the subsequent elementwise operations. Modern GPU libraries often fuse only the inexpensive elementwise operations surrounding a reduction (such as bias addition and activation), while keeping the reduction itself as a standalone kernel.
+
+some good candidates for kernel fusion: 
+bias + activation 
+gemm/linear + bias + activation
+quantization + gemm + dequantization
+
 - warp-wide reduction 
+warp-wide reduction is a GPU intrinsic. An intrinsic is a function that is implemented directly in hardware and is usually much faster 
+than a software implementation. It works by halving the number of elements in a warp with each iteration in parallel until we have 
+a single element, as shown below. 
+
+ex: 
+__device__ __forceinline__
+float warp_reduce_sum(float value) {
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        value += __shfl_down_sync(0xffffffff, value, offset);
+    }
+    return value;
+}
+
+- BLOCK WIDE REDUCTION 
+
+block-wide reduction is reducing elements from a block of GPU threads to a single element. Examples include summations, min/max, 
+vector norms, etc. Usually, each block in a GPU kernel is responsible for a contiguous tile of data, and each thread is responsible for 
+a couple elements. If we want to find the sum of all elements in a tensor, we would usually reduce by block, then reduce further. 
+Block-wide reductions are usually implemented using shared memory. There are two main ways to do efficient block-wide reductions.
+
+1. With tree-based reduction, we can reduce the number of elements by half in each iteration. Each thread loads its element into shared memory, 
+then we iteratively reduce the number of elements by half until we are left with a single element. This is usually done in a loop, 
+where each thread reduces its element with the element of another thread. 
+
+2. With warp-based reduction, we can reduce the number of elements by half in each iteration, but we do not need to use shared memory.
+Instead, we can use warp shuffle intrinsics to reduce the number of elements within a warp efficiently and store the result in shared memory. 
+Then, we can use another warp reduction to reduce these results into a single element. This is usually the best way to do block-wide reduction 
+since usually, a block has a small number of threads (256 or 512 commonly), which is 4 or 8 warps. This method only fails if we have 
+more than 32 warps in a block, which is rare in practice. 
+
 - register blocking
+register 
 
 - vectorized loads
 A vectorized load is when we load multiple elements from memory into a register with a single instruction.
@@ -90,7 +138,6 @@ for (int i = 0; i < TILE_SIZE; i++) {
     // compute products using data in shared memory
 }
 
-Loop
 - pipelining
 
 GPU pipelining works much like CPU pipelining. In CPU pipelining, we have multiple stages of instruction execution so that 
@@ -163,7 +210,93 @@ consumer_wait(next_buffer); // consumer waits for producer to finish loading nex
 ```
 
 - shared bank conflicts, padding/swizzling
+GPU shared memory is divided into multiple banks. Each bank can service one request per clock cycle. Thus, multiple banks 
+can be accessed in parallel in the same clock cycle. However, if multiple threads in a block access the same shared 
+memory bank, a bank conflict occurs and accesses are serialized -> bad performance. 
+Recall how in a CPU, only one thread can access a cache line at a time. Similarly, in a GPU, only one thread can access a shared memory bank at a time.
+
+GPUs typically have 32 banks of shared memory, 1 for each thread in a warp. GPUs typically have 32 shared memory banks, one for each thread in a warp. 
+Shared memory addresses are assigned to banks in a round-robin fashion:
+
+bank = (address / sizeof(element)) % 32
+
+The size of the element matters because we wouldn't want half of a float to be in one bank and the other half to be in another.
+This also means consecutive elements are placed in consecutive banks. 
+
+Index:  0  1  2  3  ... 31 32 33 ...
+Bank:   0  1  2  3  ... 31  0  1 ...
+
+Most naturally written cuda avoids bank conflicts. Each thread accesses shared[threadIdx.x], which naturally leads to each thread in a warp 
+accessing a different bank. However, issues can arise with different strided access patterns. 
+
+shared[threadIdx.x * 32] leads to:
+Thread: 0 1 2 3 ...
+Index : 0 32 64 96 ...
+Bank : 0  0  0  0 ...
+
+This is the worst case situation. Every thread in the warp accesses the same bank, this is terrible performance. You might be thinking: 
+who would access memory in this strange pattern? This most commonly appears in operations like transpose for example.
+In transpose kernels, we often have to access shared memory in a column-major order, which leads to multiple threads in the 
+same warp accessing the same bank.  
+
+Padding and swizzling are two techniques to avoid bank conflicts. Padding is simply adding extra elements to the shared memory array. 
+Instead of shared[32][32], we can use shared[32][33]. This way, when we access shared[threadIdx.x][i], we are accessing different banks for each thread in the warp.
+This simple trick avoids bank conflicts and improves performance, and it is also very low effort :)
+
+Swizzling is a more complicated technique that involves rearranging the data in shared memory to avoid bank conflicts.
+While padding is usually sufficient, swizzling can be used in more complicated access patterns.
+
 - tensor core utilization 
+Tensor cores are specialized matrix multiplication units introduced in NVIDIA's Volta architecture. They are basically just a specialized 
+ALU unit that SPECIFICALLY does gemm. Tensor cores are much faster than CUDA cores for matrix multiplication, but they have some limitations.
+Tensor cores can only operate on certain data types (FP16, BF16, INT8, etc.) and require the matrices to be in a specific layout (row-major or column-major).
+
+We can utilize tensor cores by using the WMMA (Warp Matrix Multiply and Accumulate) API, which allows us to perform matrix multiplication on small tiles of matrices using tensor cores.
+ex: 
+or example, a common WMMA operation is
+
+    C(16×16) = A(16×16) × B(16×16) + C(16×16)
+
+where all 32 threads in the warp participate in computing the 16×16 output tile.
+
+Example:
+
+```cpp
+using namespace nvcuda;
+
+wmma::fragment<wmma::matrix_a, 16, 16, 16, half, wmma::row_major> a_frag;
+wmma::fragment<wmma::matrix_b, 16, 16, 16, half, wmma::row_major> b_frag;
+wmma::fragment<wmma::accumulator, 16, 16, 16, float> c_frag;
+
+wmma::fill_fragment(c_frag, 0.0f);
+
+wmma::load_matrix_sync(a_frag, A, lda);
+wmma::load_matrix_sync(b_frag, B, ldb);
+
+wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);
+
+wmma::store_matrix_sync(C, c_frag, ldc, wmma::mem_row_major);
+
+- TMA (Tensor Memory Accelerator)
+
+The Tensor Memory Accelerator (TMA) is a hardware unit introduced in NVIDIA's Hopper architecture (H100, SM90) that efficiently copies multidimensional tensors from global memory to shared memory.
+TMA is primarily used in high-performance tiled kernels such as GEMM, FlashAttention, convolutions, and other tensor operations that repeatedly stage large tiles into shared memory.
+
+TMA is basically just the successor to cp.async from the ampere architecture. 
+
+- cp.async (Ampere): Threads in a warp cooperate to issue asynchronous copy instructions.
+- TMA (Hopper): A single thread launches the transfer, and dedicated hardware performs the copy.
+
+With cp.async, every thread in a warp spends instructions issuing memory copies. With TMA, only one thread launches the transfer while a dedicated copy engine moves the entire tensor tile. This reduces instruction overhead, frees the warp to perform computation, and allows memory transfers to better overlap with execution.
+
+Unlike a normal memcpy, TMA understands multidimensional tensors. Instead of copying a flat array of bytes, it can copy an entire matrix or tensor tile using information such as its dimensions, strides, and memory layout.
+
+Typical data flow:
+
+Global Memory -> Tensor Memory Accelerator -> Shared Memory
+
+
+
 - outer product GEMM 
 
 - sm occupancy
