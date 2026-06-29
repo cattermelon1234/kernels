@@ -1,0 +1,36 @@
+input: X [batch_size, seq_len, hidden_dim] 
+
+the hidden_dim is the size of input features (embedding dimension). In attention, the hidden_dim 
+is commonly reshaped to n_heads * head_dim, where n_heads is the number of attention heads. 
+
+The input X is thus reshaped to [batch_size, seq_len, n_heads, head_dim] and then transposed to [batch_size, n_heads, seq_len, head_dim] for multi-head attention.
+It is transposed because it makes more sense to have the number of heads as the second dimension, and have the 
+sequence length after that, so that we can perform attention for each head in parallel.
+
+
+W_q: [hidden_dim, hidden_dim]
+W_k: [hidden_dim, hidden_dim]
+W_v: [hidden_dim, hidden_dim]
+
+weights for q, k, v just project the input X into query, key, and value representations.
+
+After projection, we have:
+Q = X @ W_q  # [batch_size, n_heads, seq_len, head_dim]
+K = X @ W_k  # [batch_size, n_heads, seq_len, head_dim]
+V = X @ W_v  # [batch_size, n_heads, seq_len, head_dim]
+
+The input to our attention kernel will be the post-projection Q, K, V matrices 
+
+raw score = Q @ K^T  # [batch_size, n_heads, seq_len, seq_len]
+
+the raw score is just a seq_len x seq_len matrix relating each token to every other token in the sequence.
+
+Scaled score = raw score / sqrt(head_dim)  # [batch_size, n_heads, seq_len, seq_len]
+
+Logits = softmax(scaled score, dim=-1)  # [batch_size, n_heads, seq_len, seq_len]
+
+Value = Logits @ V  # [batch_size, n_heads, seq_len, head_dim]
+
+The value vector output is then reshaped back to [batch_size, seq_len, hidden_dim] by transposing and reshaping the Value tensor.
+
+Finally, the output of the attention mechanism can be passed through a linear layer to combine the heads and produce the final output representation.
