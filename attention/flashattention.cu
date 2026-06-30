@@ -40,8 +40,16 @@ OnlineSoftmaxState update_online_softmax(
     return new_state;
 }
 
-// each block is in charge of one "tile" of the q matrix of a single head of a batch 
-// (q_block, head, batch)
+// Each CUDA block owns one Q tile for one (batch, head).
+// blockIdx.x selects the Q tile along seq_len.
+// blockIdx.y selects the attention head.
+// blockIdx.z selects the batch.
+//
+// Q layout: [batch, num_heads, seq_len, head_dim]
+//
+// each thread block "owns" a BLOCK_M * HEAD_DIM chunk of Q 
+// each thread block loads in a BLOCK_N * HEAD_DIM chunk of K, V per ITERATION 
+// every iteration, flashAttention calculates (m * head_dim) @ (head_dim * n) chunk of Q @ K^T 
 template<int BLOCK_M, int BLOCK_N, int HEAD_DIM>
 __global__ void flashattention_forward_kernel(
     const float* __restrict__ q,
@@ -50,97 +58,73 @@ __global__ void flashattention_forward_kernel(
     float* __restrict__ out,
     FlashAttentionConfig cfg)
 {
-    int q_block = blockIdx.x;
-    int head = blockIdx.y;
-    int batch = blockIdx.z;
+  int batch = blockIdx.z;
+  int head = blockIdx.y;
+  int q_block = blockIdx.x; // each block processes a BLOCK_M x HEAD_DIM tile of Q 
+                            // because HEAD_DIM is usually small (128), we just set BLOCK_M = head_dim = 128 
+                            // unlike in tiled GEMM where we have to tile both M and N dimensions, in flash attn 
+                            // we only tile the M dimension (seq_len)
 
-    int tid = threadIdx.x;
-    int q_row = q_block * BLOCK_M + tid;
+  int q_row_start = q_block * BLOCK_M;
+  int q_row_end = std::min(q_row_start + BLOCK_M, cfg.seq_len);
 
-    if (q_row >= cfg.seq_len) {
-        return;
+  int tid = threadIdx.x;
+
+  __shared__ float q_tile[BLOCK_M][HEAD_DIM];
+  __shared__ float k_tile[BLOCK_N][HEAD_DIM];
+  __shared__ float v_tile[BLOCK_N][HEAD_DIM];
+
+  OnlineSoftmaxState softmax_state = init_online_softmax();
+
+  // load Q tile once: each thread block is in charge of one Q tile
+  for (int idx = tid; idx < BLOCK_M * HEAD_DIM; idx += blockDim.x) {
+      int local_q_row = idx / HEAD_DIM;
+      int col = idx % HEAD_DIM;
+      int global_q_row = q_row_start + local_q_row;
+
+      if (global_q_row < cfg.seq_len)
+          // within a q_block: q_block_idx = (row * HEAD_DIM + col)
+          // within a head: head_idx = head * seq_len * head_dim + (q_block_idx)
+          // within a batch: batch_idx = batch * head * seq_len * head_dim + head_idx
+          // within Q: flattened_idx = batch * head * seq_len * head_dim + (head * seq_len * head_dim + (row * head_dim + col))
+          q_tile[local_q_row][col] =
+              q[((batch * cfg.num_heads + head) * cfg.seq_len + global_q_row) * HEAD_DIM + col]; // factor common terms
+  }
+
+  // flash attention loop: each block loads a row of k, v vectors and computes softmax 
+  // outer loop loops down rows of k matrix
+  for (int k_block_start = 0; k_block_start < cfg.seq_len; k_block_start += BLOCK_N) {
+
+    // inner loop loads an element from the k_block, strided by blockDim.x
+    // load K tile
+    for (int idx = tid; idx < BLOCK_N * HEAD_DIM; idx += blockDim.x) {
+        int local_k_row = idx / HEAD_DIM;
+        int col = idx % HEAD_DIM;
+        int global_k_row = k_block_start + local_k_row;
+
+        if (global_k_row < cfg.seq_len)
+            k_tile[local_k_row][col] =
+                k[((batch * cfg.num_heads + head) * cfg.seq_len + global_k_row) * HEAD_DIM + col];
     }
 
-    int bh = batch * cfg.num_heads + head;
-    int base = bh * cfg.seq_len * cfg.head_dim;
+    // load V tile 
+    for (int idx = tid; idx < BLOCK_N * HEAD_DIM; idx += blockDim.x) {
+        int local_v_row = idx / HEAD_DIM;
+        int col = idx % HEAD_DIM;
+        int global_v_row = k_block_start + local_v_row;
 
-    const float* q_bh = q + base;
-    const float* k_bh = k + base;
-    const float* v_bh = v + base;
-    float* out_bh = out + base;
-
-    OnlineSoftmaxState softmax = init_online_softmax();
-    float acc[HEAD_DIM];
-
-    #pragma unroll
-    for (int d = 0; d < HEAD_DIM; d++) {
-        acc[d] = 0.0f;
+        if (global_v_row < cfg.seq_len)
+            v_tile[local_v_row][col] =
+                v[((batch * cfg.num_heads + head) * cfg.seq_len + global_v_row) * HEAD_DIM + col];
     }
 
-    for (int k_block = 0; k_block < cfg.seq_len; k_block += BLOCK_N) {
-        float scores[BLOCK_N];
-        float block_max = -FLT_MAX;
+    __syncthreads();
 
-        #pragma unroll
-        for (int j = 0; j < BLOCK_N; j++) {
-            int k_col = k_block + j;
-            float score = -FLT_MAX;
+    // slide across col dimension of K matrix 
+    //
+    for (int i = 0; i < )
+  }
 
-            if (k_col < cfg.seq_len) {
-                score = 0.0f;
-
-                #pragma unroll
-                for (int d = 0; d < HEAD_DIM; d++) {
-                    float q_val = q_bh[q_row * cfg.head_dim + d];
-                    float k_val = k_bh[k_col * cfg.head_dim + d];
-                    score += q_val * k_val;
-                }
-
-                score *= cfg.scale;
-            }
-
-            scores[j] = score;
-            block_max = fmaxf(block_max, score);
-        }
-
-        float block_sum = 0.0f;
-
-        #pragma unroll
-        for (int j = 0; j < BLOCK_N; j++) {
-            block_sum += expf(scores[j] - block_max);
-        }
-
-        OnlineSoftmaxState next_softmax =
-            update_online_softmax(softmax, block_max, block_sum);
-
-        float old_out_scale = expf(softmax.row_max - next_softmax.row_max);
-        float new_prob_scale = expf(block_max - next_softmax.row_max);
-
-        #pragma unroll
-        for (int d = 0; d < HEAD_DIM; d++) {
-            acc[d] *= old_out_scale;
-        }
-
-        #pragma unroll
-        for (int j = 0; j < BLOCK_N; j++) {
-            int k_col = k_block + j;
-            float prob = expf(scores[j] - block_max) * new_prob_scale;
-
-            if (k_col < cfg.seq_len) {
-                #pragma unroll
-                for (int d = 0; d < HEAD_DIM; d++) {
-                    acc[d] += prob * v_bh[k_col * cfg.head_dim + d];
-                }
-            }
-        }
-
-        softmax = next_softmax;
-    }
-
-    #pragma unroll
-    for (int d = 0; d < HEAD_DIM; d++) {
-        out_bh[q_row * cfg.head_dim + d] = acc[d] / softmax.row_sum;
-    }
 }
 
 template<int BLOCK_M, int BLOCK_N, int HEAD_DIM>
