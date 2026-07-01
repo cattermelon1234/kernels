@@ -74,6 +74,8 @@ __global__ void flashattention_forward_kernel(
   __shared__ float k_tile[BLOCK_N][HEAD_DIM];
   __shared__ float v_tile[BLOCK_N][HEAD_DIM];
 
+  __shared__ float scores_tile[BLOCK_M][BLOCK_N];
+
   OnlineSoftmaxState softmax_state = init_online_softmax();
 
   // load Q tile once: each thread block is in charge of one Q tile
@@ -120,9 +122,90 @@ __global__ void flashattention_forward_kernel(
 
     __syncthreads();
 
-    // slide across col dimension of K matrix 
-    //
-    for (int i = 0; i < )
+    // compute Q @ K^T for a BLOCK_M x head_dim from Q and head_dim x BLOCK_N from K 
+    // results in a BLOCK_M x BLOCK_N tile, part of a larger seq_len x seq_len "scores" matrix 
+    // production-style mapping:
+    // one warp owns one q_row
+    // each lane owns multiple k_rows
+
+    int lane = threadIdx.x % 32;
+    int warp_id = threadIdx.x / 32;
+
+    int q_row = warp_id;  // one warp per Q row
+
+    int valid_q_rows = q_row_end - q_row_start;
+    int valid_k_rows = min(BLOCK_N, cfg.seq_len - k_block_start);
+
+    if (q_row < valid_q_rows) {
+        float local_max = -FLT_MAX;
+        float scores[(BLOCK_N + 31) / 32];
+
+        // each lane computes columns: lane, lane+32, lane+64, ...
+        #pragma unroll
+        for (int kk = lane; kk < BLOCK_N; kk += 32) {
+            float score = -FLT_MAX;
+
+            if (kk < valid_k_rows) {
+                score = 0.0f;
+
+                #pragma unroll
+                for (int d = 0; d < HEAD_DIM; d++) {
+                    score += q_tile[q_row][d] * k_tile[kk][d];
+                }
+
+                score *= cfg.scale;
+            }
+
+            scores[kk / 32] = score;
+            local_max = fmaxf(local_max, score);
+        }
+
+        // warp reduce max
+        float row_max = local_max;
+        for (int offset = 16; offset > 0; offset /= 2) {
+            row_max = fmaxf(row_max, __shfl_down_sync(0xffffffff, row_max, offset));
+        }
+
+        // broadcast final max to all lanes
+        row_max = __shfl_sync(0xffffffff, row_max, 0);
+
+        // compute exp(score - row_max), local sum
+        float local_sum = 0.0f;
+        float probs[(BLOCK_N + 31) / 32];
+
+        #pragma unroll
+        for (int kk = lane; kk < BLOCK_N; kk += 32) {
+            float p = 0.0f;
+
+            if (kk < valid_k_rows) {
+                p = expf(scores[kk / 32] - row_max);
+            }
+
+            probs[kk / 32] = p;
+            local_sum += p;
+        }
+
+        // warp reduce sum
+        float row_sum = local_sum;
+        for (int offset = 16; offset > 0; offset /= 2) {
+            row_sum += __shfl_down_sync(0xffffffff, row_sum, offset);
+        }
+
+        // broadcast final sum to all lanes
+        row_sum = __shfl_sync(0xffffffff, row_sum, 0);
+
+        // now each lane owns normalized softmax probs for its K columns
+        #pragma unroll
+        for (int kk = lane; kk < BLOCK_N; kk += 32) {
+            if (kk < valid_k_rows) {
+                float weight = probs[kk / 32] / row_sum;
+
+                // weight = softmax(score[q_row][kk])
+                // next step would be: accumulate weight * V[kk]
+            }
+        }
+    }
+
   }
 
 }
