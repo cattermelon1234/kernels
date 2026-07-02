@@ -206,6 +206,11 @@ __global__ void flashattention_forward_kernel(
         }
     }
 
+    __syncthreads();
+
+    // accumulate weighted V into output
+
+
   }
 
 }
