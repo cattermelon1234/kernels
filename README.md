@@ -11,4 +11,4 @@ kernels from scratch
 - `benchmarks/`: benchmark entry points.
 - `tests/`: benchmark/test scripts and shared test helpers.
 - `include/`: shared utility headers.
-- `docs/`: notes and writeups.
+- `docs/`: notes and writeups
