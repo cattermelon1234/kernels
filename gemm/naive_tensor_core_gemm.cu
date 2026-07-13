@@ -180,7 +180,7 @@ void GEMM(const float* A, const float* B, float* C,
 }
 
 #ifndef GEMM_DISABLE_STANDALONE_MAIN
-int main() {
+void demo_tensor_core_gemm() {
     const int M = 128;
     const int K = 128;
     const int N = 128;
@@ -231,6 +231,6 @@ int main() {
     cudaFree(d_B);
     cudaFree(d_C);
 
-    return 0;
+    return;
 }
 #endif

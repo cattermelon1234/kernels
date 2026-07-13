@@ -38,7 +38,7 @@ float randomFloat(int randMax = 1000) {
   return static_cast<float>(rand()) / static_cast<float>(randMax);
 }
 // Main function
-int main(){
+void demo_vector_dot_blocked(){
     // Seed the random number generator
     srand(time(0));
 
@@ -95,5 +95,4 @@ int main(){
     cudaFree(deviceB);
     cudaFree(deviceC);
 }
-
 

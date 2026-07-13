@@ -120,7 +120,7 @@ __global__ void layernorm(const float* x, float* out, int rows, int cols, float 
     }
 }
 
-int main() {
+void demo_layernorm() {
     constexpr int BLOCK_SIZE = 256;
 
     const int rows = 4;
@@ -200,5 +200,5 @@ int main() {
     }
     std::cout << "\n";
 
-    return 0;
+    return;
 }

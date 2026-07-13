@@ -90,7 +90,7 @@ float randomFloat(int randMax = 1000) {
            static_cast<float>(randMax);
 }
 
-int main() {
+void demo_vector_sum() {
     srand(time(0));
 
     constexpr int numElements = 4096;
@@ -145,5 +145,5 @@ int main() {
 
     free(hostVector);
 
-    return 0;
+    return;
 }

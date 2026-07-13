@@ -102,7 +102,7 @@ __global__ void GEMM(const float* A, const float* B, float* C,
 }
 
 #ifndef GEMM_DISABLE_STANDALONE_MAIN
-int main() {
+void demo_optimized_gemm() {
     const int M = 64;
     const int K = 64;
     const int N = 64;
@@ -177,6 +177,6 @@ int main() {
     cudaFree(d_B);
     cudaFree(d_C);
 
-    return 0;
+    return;
 }
 #endif

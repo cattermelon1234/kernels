@@ -148,7 +148,7 @@ void topk_sample(const float* logits, int* sampled_token, int rows, int vocab_si
     sample_topk_kernel<K><<<rows, 1>>>(topk, sampled_token, uniforms);
 }
 
-int main() {
+void demo_topk_sampling() {
     constexpr int rows = 3, vocab_size = 4099, K = 8;
     constexpr float temperature = 0.8f;
     const int tiles = (vocab_size + kTopKBlockSize - 1) / kTopKBlockSize;
@@ -173,5 +173,5 @@ int main() {
     for (int row = 0; row < rows; ++row) std::cout << "sampled token for row " << row << ": " << h_tokens[row] << '\n';
     cudaFree(d_logits); cudaFree(d_tokens); cudaFree(d_uniforms); cudaFree(d_probabilities); cudaFree(d_softmax_workspace);
     cudaFree(d_max); cudaFree(d_sum); cudaFree(d_partial_topk); cudaFree(d_topk);
-    return 0;
+    return;
 }

@@ -3,7 +3,7 @@
 #include <iostream>
 #include <vector>
 
-int main() {
+void demo_softmax() {
     constexpr int rows = 4;
     constexpr int cols = 4099;
     constexpr float temperature = 0.7f;
@@ -33,5 +33,5 @@ int main() {
 
     cudaFree(d_logits); cudaFree(d_output); cudaFree(d_workspace);
     cudaFree(d_max); cudaFree(d_sum);
-    return 0;
+    return;
 }

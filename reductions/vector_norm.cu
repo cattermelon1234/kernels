@@ -61,7 +61,7 @@ float randomFloat(int randMax = 1000) {
            static_cast<float>(randMax);
 }
 
-int main() {
+void demo_vector_norm() {
     srand(time(0));
 
     int numElements = 4096;
@@ -129,5 +129,5 @@ int main() {
     free(hostVector);
     free(hostNorm);
 
-    return 0;
+    return;
 }

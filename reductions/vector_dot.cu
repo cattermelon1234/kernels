@@ -19,7 +19,7 @@ float randomFloat(int randMax = 1000){
 }
 
 // Main function
-int main(){
+void demo_vector_dot(){
     // Seed the random number generator
     srand(time(0));
 
@@ -76,5 +76,4 @@ int main(){
     cudaFree(deviceB);
     cudaFree(deviceC);
 }
-
 

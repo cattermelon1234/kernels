@@ -35,7 +35,7 @@ __global__ void transposeTiled(const float* A, float* B, int M, int N) {
     }
 }
 
-int main() {
+void demo_transpose() {
     constexpr int M = 4096;
     constexpr int N = 4096;
 
@@ -134,5 +134,5 @@ int main() {
     cudaEventDestroy(start);
     cudaEventDestroy(stop);
 
-    return 0;
+    return;
 }

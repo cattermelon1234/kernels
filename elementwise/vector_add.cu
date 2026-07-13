@@ -11,7 +11,7 @@ __global__ void add(const int *a, const int *b, int *c, int numElements) {
   }
 }
 
-int main() {
+void demo_vector_add() {
   // pointers for vectors on host (cpu) and device (gpu) 
   std::vector<int> hostA;
   std::vector<int> hostB;

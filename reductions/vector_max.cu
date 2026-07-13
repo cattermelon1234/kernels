@@ -66,7 +66,7 @@ float randomFloat(int randMax = 1000)
            static_cast<float>(randMax);
 }
 
-int main()
+void demo_vector_max()
 {
     srand(time(0));
 
@@ -129,5 +129,5 @@ int main()
     cudaFree(deviceA);
     cudaFree(deviceBlockMaxes);
 
-    return 0;
+    return;
 }

@@ -6,9 +6,9 @@
 #include "../tests/gemm_benchmark.cuh"
 
 #define GEMM_DISABLE_STANDALONE_MAIN
-#include "../gemm/optimized_gemm.cu"
+#include "../gemm/optimized_tiled_gemm.cu"
 
-int main() {
+void run_optimized_gemm_benchmark() {
     const int M = 2048;
     const int N = 2048;
     const int K = 2048;
@@ -49,5 +49,5 @@ int main() {
     CUDA_CHECK(cudaFree(d_B));
     CUDA_CHECK(cudaFree(d_C));
 
-    return 0;
+    return;
 }

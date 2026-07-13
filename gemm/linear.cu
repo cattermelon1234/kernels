@@ -1,7 +1,7 @@
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
 
-#include "hyperoptimized_gemm_helper.cuh"
+#include "gemm_helper.cuh"
 #include "../epilogues/linear.cuh"
 
 // Fused linear layer:
