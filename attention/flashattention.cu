@@ -9,6 +9,7 @@ struct FlashAttentionConfig {
     int seq_len;
     int head_dim;
     float scale;
+    bool causal;
 };
 
 // Each CUDA block owns one Q tile for one (batch, head).
@@ -69,6 +70,13 @@ __global__ void flashattention_forward_kernel(
     __syncthreads();
 
     for (int k_block_start = 0; k_block_start < cfg.seq_len; k_block_start += BLOCK_N) {
+        // K/V tiles are visited from left to right. In causal attention, once a
+        // tile begins after the final query owned by this block, this tile and
+        // every following tile are wholly above the causal diagonal.
+        if (cfg.causal && k_block_start > q_row_end - 1) {
+            break;
+        }
+
         for (int idx = tid; idx < BLOCK_N * HEAD_DIM; idx += blockDim.x) {
             int local_k_row = idx / HEAD_DIM;
             int col = idx % HEAD_DIM;
@@ -86,7 +94,10 @@ __global__ void flashattention_forward_kernel(
 
         int valid_k_rows = min(BLOCK_N, cfg.seq_len - k_block_start);
 
-        if (q_row < valid_q_rows) {
+        int global_q_row = q_row_start + q_row;
+        bool tile_has_visible_keys = !cfg.causal || k_block_start <= global_q_row;
+
+        if (q_row < valid_q_rows && tile_has_visible_keys) {
             float local_max = -FLT_MAX;
             float scores[(BLOCK_N + 31) / 32];
 
@@ -94,7 +105,10 @@ __global__ void flashattention_forward_kernel(
             for (int kk = lane; kk < BLOCK_N; kk += 32) {
                 float score = -FLT_MAX;
 
-                if (kk < valid_k_rows) {
+                int global_k_row = k_block_start + kk;
+                bool key_is_visible = !cfg.causal || global_k_row <= global_q_row;
+
+                if (kk < valid_k_rows && key_is_visible) {
                     score = 0.0f;
 
                     #pragma unroll
@@ -122,7 +136,10 @@ __global__ void flashattention_forward_kernel(
             for (int kk = lane; kk < BLOCK_N; kk += 32) {
                 float p = 0.0f;
 
-                if (kk < valid_k_rows) {
+                int global_k_row = k_block_start + kk;
+                bool key_is_visible = !cfg.causal || global_k_row <= global_q_row;
+
+                if (kk < valid_k_rows && key_is_visible) {
                     p = expf(scores[kk / 32] - tile_max);
                 }
 
@@ -180,6 +197,40 @@ __global__ void flashattention_forward_kernel(
 }
 
 template<int BLOCK_M, int BLOCK_N, int HEAD_DIM>
+void launch_flashattention_forward_impl(
+    const float* q,
+    const float* k,
+    const float* v,
+    float* out,
+    int batch_size,
+    int num_heads,
+    int seq_len,
+    float scale,
+    bool causal,
+    cudaStream_t stream = 0)
+{
+    static_assert(BLOCK_M * 32 <= 1024, "one-warp-per-row mapping requires BLOCK_M <= 32");
+
+    FlashAttentionConfig cfg;
+    cfg.batch_size = batch_size;
+    cfg.num_heads = num_heads;
+    cfg.seq_len = seq_len;
+    cfg.head_dim = HEAD_DIM;
+    cfg.scale = scale;
+    cfg.causal = causal;
+
+    dim3 block(BLOCK_M * 32);
+    dim3 grid(
+        (seq_len + BLOCK_M - 1) / BLOCK_M,
+        num_heads,
+        batch_size
+    );
+
+    flashattention_forward_kernel<BLOCK_M, BLOCK_N, HEAD_DIM>
+        <<<grid, block, 0, stream>>>(q, k, v, out, cfg);
+}
+
+template<int BLOCK_M, int BLOCK_N, int HEAD_DIM>
 void launch_flashattention_forward(
     const float* q,
     const float* k,
@@ -191,22 +242,22 @@ void launch_flashattention_forward(
     float scale,
     cudaStream_t stream = 0)
 {
-    static_assert(BLOCK_M * 32 <= 1024, "one-warp-per-row mapping requires BLOCK_M <= 32");
+    launch_flashattention_forward_impl<BLOCK_M, BLOCK_N, HEAD_DIM>(
+        q, k, v, out, batch_size, num_heads, seq_len, scale, false, stream);
+}
 
-    FlashAttentionConfig cfg;
-    cfg.batch_size = batch_size;
-    cfg.num_heads = num_heads;
-    cfg.seq_len = seq_len;
-    cfg.head_dim = HEAD_DIM;
-    cfg.scale = scale;
-
-    dim3 block(BLOCK_M * 32);
-    dim3 grid(
-        (seq_len + BLOCK_M - 1) / BLOCK_M,
-        num_heads,
-        batch_size
-    );
-
-    flashattention_forward_kernel<BLOCK_M, BLOCK_N, HEAD_DIM>
-        <<<grid, block, 0, stream>>>(q, k, v, out, cfg);
+template<int BLOCK_M, int BLOCK_N, int HEAD_DIM>
+void launch_flashattention_causal_forward(
+    const float* q,
+    const float* k,
+    const float* v,
+    float* out,
+    int batch_size,
+    int num_heads,
+    int seq_len,
+    float scale,
+    cudaStream_t stream = 0)
+{
+    launch_flashattention_forward_impl<BLOCK_M, BLOCK_N, HEAD_DIM>(
+        q, k, v, out, batch_size, num_heads, seq_len, scale, true, stream);
 }
