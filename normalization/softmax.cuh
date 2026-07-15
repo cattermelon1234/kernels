@@ -24,17 +24,6 @@ __global__ void compute_tile_maxes_kernel(const float* logits, float* tile_maxes
 }
 
 template <int BLOCK_SIZE>
-__global__ void reduce_tile_maxes_kernel(const float* tile_maxes, float* row_maxes, int tiles) {
-    const int row = blockIdx.x;
-    float value = -FLT_MAX;
-    for (int tile = threadIdx.x; tile < tiles; tile += BLOCK_SIZE) {
-        value = fmaxf(value, tile_maxes[row * tiles + tile]);
-    }
-    value = cuda_reductions::block_reduce_max<BLOCK_SIZE>(value);
-    if (threadIdx.x == 0) row_maxes[row] = value;
-}
-
-template <int BLOCK_SIZE>
 __global__ void compute_exp_and_tile_sums_kernel(const float* logits, const float* row_maxes,
                                                  float* output, float* tile_sums,
                                                  int cols, float temperature) {
@@ -48,17 +37,6 @@ __global__ void compute_exp_and_tile_sums_kernel(const float* logits, const floa
     }
     value = cuda_reductions::block_reduce_sum<BLOCK_SIZE>(value);
     if (threadIdx.x == 0) tile_sums[row * gridDim.x + tile] = value;
-}
-
-template <int BLOCK_SIZE>
-__global__ void reduce_tile_sums_kernel(const float* tile_sums, float* row_sums, int tiles) {
-    const int row = blockIdx.x;
-    float value = 0.0f;
-    for (int tile = threadIdx.x; tile < tiles; tile += BLOCK_SIZE) {
-        value += tile_sums[row * tiles + tile];
-    }
-    value = cuda_reductions::block_reduce_sum<BLOCK_SIZE>(value);
-    if (threadIdx.x == 0) row_sums[row] = value;
 }
 
 __global__ void normalize_rows_kernel(float* output, const float* row_sums, int cols) {
@@ -76,9 +54,11 @@ inline void softmax_temperature(const float* logits, float* output, int rows, in
     const int tiles = (cols + kBlockSize - 1) / kBlockSize;
     const dim3 tiled_grid(tiles, rows);
     compute_tile_maxes_kernel<kBlockSize><<<tiled_grid, kBlockSize>>>(logits, workspace, cols, temperature);
-    reduce_tile_maxes_kernel<kBlockSize><<<rows, kBlockSize>>>(workspace, row_max, tiles);
+    cuda_reductions::reduce_segment_maxes<kBlockSize><<<rows, kBlockSize>>>(
+        workspace, row_max, tiles);
     compute_exp_and_tile_sums_kernel<kBlockSize><<<tiled_grid, kBlockSize>>>(logits, row_max, output, workspace, cols, temperature);
-    reduce_tile_sums_kernel<kBlockSize><<<rows, kBlockSize>>>(workspace, row_sum, tiles);
+    cuda_reductions::reduce_segment_sums<kBlockSize><<<rows, kBlockSize>>>(
+        workspace, row_sum, tiles);
     normalize_rows_kernel<<<tiled_grid, kBlockSize>>>(output, row_sum, cols);
 }
 

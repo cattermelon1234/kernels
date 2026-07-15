@@ -52,4 +52,43 @@ __device__ __forceinline__ float block_reduce_sum(float value) {
     return value;
 }
 
+// Reduces partial_results[segment][partial] to one sum per segment. Launch
+// one block per segment; threads stride over that segment's partial results.
+template <int BLOCK_SIZE>
+__global__ void reduce_segment_sums(const float* partial_results,
+                                    float* segment_results,
+                                    int partials_per_segment) {
+    const int segment = blockIdx.x;
+    float value = 0.0f;
+
+    for (int partial = threadIdx.x;
+         partial < partials_per_segment;
+         partial += BLOCK_SIZE) {
+        value += partial_results[segment * partials_per_segment + partial];
+    }
+
+    value = block_reduce_sum<BLOCK_SIZE>(value);
+    if (threadIdx.x == 0) segment_results[segment] = value;
+}
+
+// Reduces partial_results[segment][partial] to one maximum per segment. Launch
+// one block per segment; threads stride over that segment's partial results.
+template <int BLOCK_SIZE>
+__global__ void reduce_segment_maxes(const float* partial_results,
+                                     float* segment_results,
+                                     int partials_per_segment) {
+    const int segment = blockIdx.x;
+    float value = -FLT_MAX;
+
+    for (int partial = threadIdx.x;
+         partial < partials_per_segment;
+         partial += BLOCK_SIZE) {
+        value = fmaxf(value,
+                      partial_results[segment * partials_per_segment + partial]);
+    }
+
+    value = block_reduce_max<BLOCK_SIZE>(value);
+    if (threadIdx.x == 0) segment_results[segment] = value;
+}
+
 }  // namespace cuda_reductions
