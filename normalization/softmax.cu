@@ -7,7 +7,8 @@ void demo_softmax() {
     constexpr int rows = 4;
     constexpr int cols = 4099;
     constexpr float temperature = 0.7f;
-    const int tiles = (cols + softmax_cuda::kBlockSize - 1) / softmax_cuda::kBlockSize;
+    const int tiles =
+        (cols + kernels::kSoftmaxBlockSize - 1) / kernels::kSoftmaxBlockSize;
 
     std::vector<float> h_logits(rows * cols);
     std::vector<float> h_output(rows * cols);
@@ -22,8 +23,8 @@ void demo_softmax() {
     cudaMalloc(&d_sum, rows * sizeof(float));
     cudaMemcpy(d_logits, h_logits.data(), h_logits.size() * sizeof(float), cudaMemcpyHostToDevice);
 
-    softmax_cuda::softmax_temperature(d_logits, d_output, rows, cols, temperature,
-                                      d_workspace, d_max, d_sum);
+    kernels::softmax_temperature(d_logits, d_output, rows, cols, temperature,
+                                 d_workspace, d_max, d_sum);
     cudaDeviceSynchronize();
     cudaMemcpy(h_output.data(), d_output, h_output.size() * sizeof(float), cudaMemcpyDeviceToHost);
 

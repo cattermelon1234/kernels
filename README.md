@@ -16,7 +16,7 @@ kernels from scratch
 
 ## decoding examples
 
-`normalization/softmax.cu` implements `softmax_temperature`: a stable,
+`normalization/softmax.cu` implements `kernels::softmax_temperature`: a stable,
 temperature-scaled row softmax whose max and sum reductions are tiled for rows
 larger than one block. `sampling/topk_sampling.cu` implements
 `topk_sample<K>` for `1 <= K <= 32`. It calls `softmax_temperature`, reduces

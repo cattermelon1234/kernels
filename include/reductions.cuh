@@ -4,7 +4,7 @@
 
 #include <cfloat>
 
-namespace cuda_reductions {
+namespace kernels {
 
 __device__ __forceinline__ float warp_reduce_max(float value) {
     for (int offset = 16; offset > 0; offset >>= 1) {
@@ -91,4 +91,4 @@ __global__ void reduce_segment_maxes(const float* partial_results,
     if (threadIdx.x == 0) segment_results[segment] = value;
 }
 
-}  // namespace cuda_reductions
+}  // namespace kernels

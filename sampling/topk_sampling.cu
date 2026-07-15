@@ -141,8 +141,8 @@ void topk_sample(const float* logits, int* sampled_token, int rows, int vocab_si
     static_assert(K > 0 && K <= kMaxTopK, "K must be in [1, 32]");
     if (rows <= 0 || vocab_size < K || temperature <= 0.0f) return;
     const int tiles = (vocab_size + kTopKBlockSize - 1) / kTopKBlockSize;
-    softmax_cuda::softmax_temperature(logits, probabilities, rows, vocab_size, temperature,
-                                      softmax_workspace, row_max, row_sum);
+    kernels::softmax_temperature(logits, probabilities, rows, vocab_size, temperature,
+                                 softmax_workspace, row_max, row_sum);
     partial_topk_kernel<K><<<dim3(tiles, rows), kTopKBlockSize>>>(probabilities, partial_topk, vocab_size);
     finalize_topk_kernel<K><<<rows, kTopKBlockSize>>>(partial_topk, topk, tiles);
     sample_topk_kernel<K><<<rows, 1>>>(topk, sampled_token, uniforms);
